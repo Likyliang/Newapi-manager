@@ -74,6 +74,13 @@ source_newapi_manager_config() {
   : "${FAIL_THRESHOLD:=12}"
   : "${RESTART_COOLDOWN_SEC:=7200}"
   : "${REPORT_TOP_N:=5}"
+  : "${REPORT_GROUP_TOP_N:=3}"
+  : "${REPORT_PAYMENT_METHOD_TOP_N:=3}"
+  : "${BUSINESS_INACTIVE_DAYS:=7}"
+  : "${BUSINESS_LONG_INACTIVE_DAYS:=30}"
+  : "${TRAFFIC_TOP_PATHS:=5}"
+  : "${TRAFFIC_TOP_SUSPICIOUS_PATHS:=3}"
+  : "${TRAFFIC_SUSPICIOUS_REGEX:=([.]env|wp-|vendor/phpunit|boaform|hello[.]world|SDK/|actuator|cgi-bin|login[.]asp|phpunit|[.]git|[.]svn)}"
 
   : "${OFFSITE_REMOTE_HOST:=}"
   : "${OFFSITE_REMOTE_PATH:=/opt/new-api/backups/db/hourly/latest}"
@@ -181,5 +188,17 @@ compact_number() {
     else if (n>=1000000) printf "%.2fM", n/1000000
     else if (n>=1000) printf "%.2fK", n/1000
     else printf "%d", n
+  }'
+}
+
+compact_bytes() {
+  local value="${1:-0}"
+  printf '%s' "$value" | awk '{
+    n=$1+0
+    if (n>=1099511627776) printf "%.2fTB", n/1099511627776
+    else if (n>=1073741824) printf "%.2fGB", n/1073741824
+    else if (n>=1048576) printf "%.2fMB", n/1048576
+    else if (n>=1024) printf "%.2fKB", n/1024
+    else printf "%dB", n
   }'
 }

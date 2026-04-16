@@ -8,8 +8,8 @@
 - 自动更新与失败回滚
 - 本机数据库/配置/品牌资源备份
 - 管理机异地备份同步
-- 系统日报（资源 / 容器 / 可用性）
-- 经营日报（活跃 / 增长 / 营收 / Top 客户 / Top 模型）
+- 系统日报（资源 / 容器 / 可用性 / 网站流量 / 可疑扫描）
+- 经营日报（真实活跃 / 客户增长 / 营收 / 分组 / Top 客户 / Top 模型）
 - 用户快照（解决 `users` 表无 `created_at` 无法精确算注册增长的问题）
 
 ## 目录结构
@@ -60,6 +60,15 @@ docs/
   2. 仓库/安装目录下的 `.env`
   3. `/etc/newapi-manager.env`
   4. 旧路径兼容：`/etc/new-api-monitor.env`、`/etc/app-guard.env`
+
+### 报表调优字段
+
+- `REPORT_TOP_N`：Top 客户 / Top 模型条数
+- `REPORT_GROUP_TOP_N`：活跃分组条数
+- `REPORT_PAYMENT_METHOD_TOP_N`：支付方式条数
+- `BUSINESS_INACTIVE_DAYS` / `BUSINESS_LONG_INACTIVE_DAYS`：沉默用户窗口
+- `TRAFFIC_TOP_PATHS` / `TRAFFIC_TOP_SUSPICIOUS_PATHS`：系统日报展示的路径条数
+- `TRAFFIC_SUSPICIOUS_REGEX`：可疑扫描识别规则
 
 ## 推荐先手测的命令
 
