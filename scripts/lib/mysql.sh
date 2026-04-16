@@ -26,7 +26,7 @@ mysql_exec() {
   docker exec \
     -e MYSQL_PWD="$MYSQL_ROOT_PASSWORD" \
     "$NEWAPI_MYSQL_CONTAINER" \
-    mysql -uroot -N -B "$NEWAPI_DB_NAME" -e "$sql"
+    mysql --default-character-set=utf8mb4 -uroot -N -B "$NEWAPI_DB_NAME" -e "$sql"
 }
 
 mysql_file() {
@@ -36,5 +36,5 @@ mysql_file() {
     -i \
     -e MYSQL_PWD="$MYSQL_ROOT_PASSWORD" \
     "$NEWAPI_MYSQL_CONTAINER" \
-    mysql -uroot -N -B "$NEWAPI_DB_NAME" <"$sql_file"
+    mysql --default-character-set=utf8mb4 -uroot -N -B "$NEWAPI_DB_NAME" <"$sql_file"
 }
