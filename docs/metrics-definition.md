@@ -33,6 +33,8 @@
 - 数据源：`top_ups`
 - 口径：`status='success'` 且 `complete_time` 落在报表日期内的 `money` 汇总
 - 说明：避免和 `subscription_orders` 双算
+- 当前约定：数据库金额按 **美元（USD）** 存储，报表按 **人民币（CNY）= USD × 7** 展示
+- 可通过 `.env` 中 `REVENUE_SOURCE_CURRENCY`、`REVENUE_REPORT_CURRENCY`、`REVENUE_USD_TO_CNY_RATE` 调整
 
 ### ARPPU / 客单价 / 付费率
 - ARPPU：当天成功营收 / 当天付费用户数

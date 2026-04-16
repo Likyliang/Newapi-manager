@@ -21,6 +21,9 @@ GROUP_TOP_N="${REPORT_GROUP_TOP_N}"
 PAYMENT_METHOD_TOP_N="${REPORT_PAYMENT_METHOD_TOP_N}"
 INACTIVE_DAYS="${BUSINESS_INACTIVE_DAYS}"
 LONG_INACTIVE_DAYS="${BUSINESS_LONG_INACTIVE_DAYS}"
+REVENUE_SOURCE="${REVENUE_SOURCE_CURRENCY}"
+REVENUE_REPORT="${REVENUE_REPORT_CURRENCY}"
+USD_TO_CNY_RATE="${REVENUE_USD_TO_CNY_RATE}"
 
 START_TS="$(date -d "${REPORT_DATE} 00:00:00" +%s)"
 END_TS="$(date -d "${REPORT_DATE} +1 day 00:00:00" +%s)"
@@ -45,6 +48,39 @@ signed_float_delta() {
 
 fmt_money() {
   awk -v n="${1:-0}" 'BEGIN{printf "%.2f", n+0}'
+}
+
+money_to_report() {
+  awk -v n="${1:-0}" -v src="${REVENUE_SOURCE}" -v dst="${REVENUE_REPORT}" -v rate="${USD_TO_CNY_RATE}" '
+    BEGIN {
+      v=n+0
+      if (src=="USD" && dst=="CNY") v=v*rate
+      printf "%.2f", v
+    }'
+}
+
+report_money_symbol() {
+  case "${REVENUE_REPORT}" in
+    CNY) printf '¥' ;;
+    USD) printf '$' ;;
+    *) printf '%s ' "${REVENUE_REPORT}" ;;
+  esac
+}
+
+source_money_symbol() {
+  case "${REVENUE_SOURCE}" in
+    CNY) printf '¥' ;;
+    USD) printf '$' ;;
+    *) printf '%s ' "${REVENUE_SOURCE}" ;;
+  esac
+}
+
+fmt_report_money() {
+  printf '%s%s' "$(report_money_symbol)" "$(money_to_report "$1")"
+}
+
+fmt_source_money() {
+  printf '%s%s' "$(source_money_symbol)" "$(fmt_money "$1")"
 }
 
 ratio_pct() {
@@ -123,8 +159,8 @@ format_payment_lines() {
   while IFS=$'\t' read -r method orders amount; do
     [[ -n "${method:-}" ]] || continue
     idx=$((idx + 1))
-    printf '  %d) %s ｜ 订单=%s ｜ 营收=¥%s\n' \
-      "$idx" "$method" "$orders" "$(fmt_money "$amount")"
+    printf '  %d) %s ｜ 订单=%s ｜ 营收=%s\n' \
+      "$idx" "$method" "$orders" "$(fmt_report_money "$amount")"
   done <<<"$raw"
 }
 
@@ -158,7 +194,6 @@ inactive_short_users="$(nonneg_sub "$total_users" "$wau_users")"
 inactive_long_users="$(nonneg_sub "$total_users" "$mau_users")"
 repeat_paying_users="$(nonneg_sub "$paying_users" "$new_paying_users")"
 active_delta="$(signed_int_delta "$active_users" "$prev_active_users")"
-revenue_delta="$(signed_float_delta "$success_revenue" "$prev_success_revenue")"
 active_rate="$(ratio_pct "$active_users" "$total_users")"
 cumulative_pay_rate="$(ratio_pct "$cumulative_paying_users" "$total_users")"
 active_pay_rate="$(ratio_pct "$paying_users" "$active_users")"
@@ -168,6 +203,15 @@ avg_quota_per_active="$(avg_number "$quota_used" "$active_users")"
 avg_tokens_per_active="$(avg_number "$token_used" "$active_users")"
 order_aov="$(avg_number "$success_revenue" "$success_orders")"
 arppu="$(avg_number "$success_revenue" "$paying_users")"
+success_revenue_report="$(money_to_report "$success_revenue")"
+prev_success_revenue_report="$(money_to_report "$prev_success_revenue")"
+mtd_revenue_report="$(money_to_report "$mtd_revenue")"
+total_revenue_report="$(money_to_report "$total_revenue")"
+pending_amount_today_report="$(money_to_report "$pending_amount_today")"
+pending_amount_pool_report="$(money_to_report "$pending_amount_pool")"
+order_aov_report="$(money_to_report "$order_aov")"
+arppu_report="$(money_to_report "$arppu")"
+revenue_delta_report="$(signed_float_delta "$success_revenue_report" "$prev_success_revenue_report")"
 
 IFS='|' read -r snapshot_start_users snapshot_end_users snapshot_added snapshot_removed <<<"$(snapshot_growth_summary)"
 if [[ "$snapshot_added" == "n/a" ]]; then
@@ -256,11 +300,11 @@ ${user_growth_line}
 - 当日付费用户：${paying_users}（新增 ${new_paying_users} / 复购 ${repeat_paying_users} / 活跃付费率 ${active_pay_rate}）
 
 营收概况
-- 成功营收：¥$(fmt_money "$success_revenue")（较前日 ${revenue_delta}）
-- 成功订单：${success_orders} ｜ 客单价：¥$(fmt_money "$order_aov") ｜ ARPPU：¥$(fmt_money "$arppu")
-- 本月累计营收：¥$(fmt_money "$mtd_revenue") ｜ 累计总营收：¥$(fmt_money "$total_revenue")
-- 今日新增待支付：${pending_orders_today} / ¥$(fmt_money "$pending_amount_today")
-- 当前待支付池：${pending_orders_pool} / ¥$(fmt_money "$pending_amount_pool")
+- 成功营收：$(fmt_report_money "$success_revenue")（较前日 $(report_money_symbol)${revenue_delta_report} / 原始 $(fmt_source_money "$success_revenue")）
+- 成功订单：${success_orders} ｜ 客单价：$(report_money_symbol)${order_aov_report} ｜ ARPPU：$(report_money_symbol)${arppu_report}
+- 本月累计营收：$(report_money_symbol)${mtd_revenue_report} ｜ 累计总营收：$(report_money_symbol)${total_revenue_report}
+- 今日新增待支付：${pending_orders_today} / $(report_money_symbol)${pending_amount_today_report}
+- 当前待支付池：${pending_orders_pool} / $(report_money_symbol)${pending_amount_pool_report}
 
 活跃分组
 $(format_group_lines "$top_groups_raw")
@@ -275,6 +319,7 @@ $(format_usage_rank_lines "$top_models_raw" '无模型消耗数据')
 - DAU / WAU / MAU / 请求 / quota / tokens：基于 quota_data
 - 注册增长：基于每日 00:05 用户快照；缺快照时显示 n/a
 - 营收：基于 top_ups.success；待支付：基于 subscription_orders.pending
+- 金额：数据库按 ${REVENUE_SOURCE} 存储，报表按 ${REVENUE_REPORT} 展示（当前汇率 ${USD_TO_CNY_RATE}）
 EOFMSG
 )
 
