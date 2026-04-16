@@ -2,11 +2,14 @@
 # shellcheck shell=bash
 
 NEWAPI_COMMON_LIB_LOADED=1
+NEWAPI_MANAGER_LIB_DIR="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
+NEWAPI_MANAGER_REPO_ROOT="$(cd "${NEWAPI_MANAGER_LIB_DIR}/../.." && pwd)"
 
 resolve_newapi_manager_config() {
   local candidates=()
   [[ -n "${NEWAPI_MANAGER_CONFIG:-}" ]] && candidates+=("$NEWAPI_MANAGER_CONFIG")
   candidates+=(
+    "${NEWAPI_MANAGER_REPO_ROOT}/.env"
     "/etc/newapi-manager.env"
     "/etc/new-api-monitor.env"
     "/etc/app-guard.env"

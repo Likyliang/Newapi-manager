@@ -1,4 +1,6 @@
 .env
+.env.local
+.env.*.local
 *.swp
 *.swo
 .DS_Store

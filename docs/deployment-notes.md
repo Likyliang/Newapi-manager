@@ -14,7 +14,8 @@
 ## 推荐安装位置
 - 仓库代码：`/opt/newapi-manager`
 - 可执行入口：`/usr/local/bin`
-- 配置文件：`/etc/newapi-manager.env`
+- 主配置文件：`/opt/newapi-manager/.env`
+- 兼容配置路径：`/etc/newapi-manager.env`
 
 ## 推荐 cron
 服务器侧：
@@ -33,3 +34,8 @@
 2. 手动执行每个脚本一次
 3. 确认 Telegram / OpenClaw 通知正常
 4. 再切换 cron 到仓库版脚本
+
+## 配置维护建议
+- 平时只维护仓库根目录 `.env`
+- `.env` 不提交，仓库只提交 `.env.example`
+- 每次更新仓库后重新执行一次 `deploy/install.sh`，把 `.env` 同步到 `/opt/newapi-manager/.env`

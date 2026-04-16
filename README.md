@@ -43,12 +43,23 @@ docs/
 ## 快速开始
 
 1. 复制配置样板
-   - `config/examples/newapi-manager.env.example -> /etc/newapi-manager.env`
+   - `cp .env.example .env`
 2. 按实际环境填写域名、容器名、数据库 env、通知方式
 3. 运行安装器
    - `sudo bash deploy/install.sh`
 4. 手动测试脚本
 5. 再启用 cron
+
+## 配置文件约定
+
+- 仓库根目录 `.env`：**推荐唯一维护入口**
+- `.env.example`：提交到 Git，用作模板
+- `.env` 已被 `.gitignore` 忽略，不会推送敏感信息
+- 安装后脚本会优先读取：
+  1. `NEWAPI_MANAGER_CONFIG`
+  2. 仓库/安装目录下的 `.env`
+  3. `/etc/newapi-manager.env`
+  4. 旧路径兼容：`/etc/new-api-monitor.env`、`/etc/app-guard.env`
 
 ## 推荐先手测的命令
 
