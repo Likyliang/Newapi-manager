@@ -1,3 +1,3 @@
 CRON_TZ=Asia/Shanghai
 # new-api business report (yesterday summary)
-30 8 * * * root flock -n /var/run/new-api-business-report.lock /usr/local/bin/new-api-business-report.sh >/var/log/new-api-business-report.log 2>&1
+5 11 * * * root flock -n /var/run/new-api-business-report.lock /usr/local/bin/new-api-business-report.sh >/var/log/new-api-business-report.log 2>&1
