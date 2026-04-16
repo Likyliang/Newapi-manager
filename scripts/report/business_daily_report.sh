@@ -175,18 +175,16 @@ request_count="$(sql_scalar "SELECT COALESCE(SUM(\`count\`),0) FROM quota_data W
 quota_used="$(sql_scalar "SELECT COALESCE(SUM(quota),0) FROM quota_data WHERE created_at >= ${START_TS} AND created_at < ${END_TS};")"
 token_used="$(sql_scalar "SELECT COALESCE(SUM(token_used),0) FROM quota_data WHERE created_at >= ${START_TS} AND created_at < ${END_TS};")"
 
-success_revenue="$(sql_scalar "SELECT ROUND(COALESCE(SUM(money),0),2) FROM top_ups WHERE status='success' AND complete_time >= ${START_TS} AND complete_time < ${END_TS};")"
-prev_success_revenue="$(sql_scalar "SELECT ROUND(COALESCE(SUM(money),0),2) FROM top_ups WHERE status='success' AND complete_time >= ${PREV_START_TS} AND complete_time < ${PREV_END_TS};")"
-mtd_revenue="$(sql_scalar "SELECT ROUND(COALESCE(SUM(money),0),2) FROM top_ups WHERE status='success' AND complete_time >= ${MONTH_START_TS} AND complete_time < ${END_TS};")"
-total_revenue="$(sql_scalar "SELECT ROUND(COALESCE(SUM(money),0),2) FROM top_ups WHERE status='success';")"
-success_orders="$(sql_scalar "SELECT COUNT(*) FROM top_ups WHERE status='success' AND complete_time >= ${START_TS} AND complete_time < ${END_TS};")"
-paying_users="$(sql_scalar "SELECT COUNT(DISTINCT user_id) FROM top_ups WHERE status='success' AND complete_time >= ${START_TS} AND complete_time < ${END_TS} AND user_id IS NOT NULL;")"
-new_paying_users="$(sql_scalar "SELECT COUNT(*) FROM (SELECT user_id FROM top_ups WHERE status='success' AND user_id IS NOT NULL GROUP BY user_id HAVING MIN(complete_time) >= ${START_TS} AND MIN(complete_time) < ${END_TS}) t;")"
-cumulative_paying_users="$(sql_scalar "SELECT COUNT(DISTINCT user_id) FROM top_ups WHERE status='success' AND user_id IS NOT NULL;")"
+success_revenue="$(sql_scalar "SELECT ROUND(COALESCE(SUM(money),0),2) FROM subscription_orders WHERE status='success' AND complete_time >= ${START_TS} AND complete_time < ${END_TS};")"
+prev_success_revenue="$(sql_scalar "SELECT ROUND(COALESCE(SUM(money),0),2) FROM subscription_orders WHERE status='success' AND complete_time >= ${PREV_START_TS} AND complete_time < ${PREV_END_TS};")"
+mtd_revenue="$(sql_scalar "SELECT ROUND(COALESCE(SUM(money),0),2) FROM subscription_orders WHERE status='success' AND complete_time >= ${MONTH_START_TS} AND complete_time < ${END_TS};")"
+total_revenue="$(sql_scalar "SELECT ROUND(COALESCE(SUM(money),0),2) FROM subscription_orders WHERE status='success';")"
+success_orders="$(sql_scalar "SELECT COUNT(*) FROM subscription_orders WHERE status='success' AND complete_time >= ${START_TS} AND complete_time < ${END_TS};")"
+paying_users="$(sql_scalar "SELECT COUNT(DISTINCT user_id) FROM subscription_orders WHERE status='success' AND complete_time >= ${START_TS} AND complete_time < ${END_TS} AND user_id IS NOT NULL;")"
+new_paying_users="$(sql_scalar "SELECT COUNT(*) FROM (SELECT user_id FROM subscription_orders WHERE status='success' AND user_id IS NOT NULL GROUP BY user_id HAVING MIN(complete_time) >= ${START_TS} AND MIN(complete_time) < ${END_TS}) t;")"
+cumulative_paying_users="$(sql_scalar "SELECT COUNT(DISTINCT user_id) FROM subscription_orders WHERE status='success' AND user_id IS NOT NULL;")"
 pending_orders_today="$(sql_scalar "SELECT COUNT(*) FROM subscription_orders WHERE status='pending' AND create_time >= ${START_TS} AND create_time < ${END_TS};")"
 pending_amount_today="$(sql_scalar "SELECT ROUND(COALESCE(SUM(money),0),2) FROM subscription_orders WHERE status='pending' AND create_time >= ${START_TS} AND create_time < ${END_TS};")"
-pending_orders_pool="$(sql_scalar "SELECT COUNT(*) FROM subscription_orders WHERE status='pending';")"
-pending_amount_pool="$(sql_scalar "SELECT ROUND(COALESCE(SUM(money),0),2) FROM subscription_orders WHERE status='pending';")"
 
 returning_active_users="$(nonneg_sub "$active_users" "$retained_active_users")"
 returning_active_users="$(nonneg_sub "$returning_active_users" "$new_active_users")"
@@ -208,7 +206,6 @@ prev_success_revenue_report="$(money_to_report "$prev_success_revenue")"
 mtd_revenue_report="$(money_to_report "$mtd_revenue")"
 total_revenue_report="$(money_to_report "$total_revenue")"
 pending_amount_today_report="$(money_to_report "$pending_amount_today")"
-pending_amount_pool_report="$(money_to_report "$pending_amount_pool")"
 order_aov_report="$(money_to_report "$order_aov")"
 arppu_report="$(money_to_report "$arppu")"
 revenue_delta_report="$(signed_float_delta "$success_revenue_report" "$prev_success_revenue_report")"
@@ -244,7 +241,7 @@ payment_methods_raw="$(mysql_exec "
 SELECT COALESCE(NULLIF(payment_method,''),'(unknown)') AS payment_method,
        COUNT(*) AS orders_cnt,
        ROUND(COALESCE(SUM(money),0),2) AS revenue
-FROM top_ups
+FROM subscription_orders
 WHERE status='success' AND complete_time >= ${START_TS} AND complete_time < ${END_TS}
 GROUP BY payment_method
 ORDER BY revenue DESC, orders_cnt DESC
@@ -304,11 +301,10 @@ ${user_growth_line}
 - 成功订单：${success_orders} ｜ 客单价：$(report_money_symbol)${order_aov_report} ｜ ARPPU：$(report_money_symbol)${arppu_report}
 - 本月累计营收：$(report_money_symbol)${mtd_revenue_report} ｜ 累计总营收：$(report_money_symbol)${total_revenue_report}
 - 今日新增待支付：${pending_orders_today} / $(report_money_symbol)${pending_amount_today_report}
-- 当前待支付池：${pending_orders_pool} / $(report_money_symbol)${pending_amount_pool_report}
 
 活跃分组
 $(format_group_lines "$top_groups_raw")
-支付方式
+套餐支付方式
 $(format_payment_lines "$payment_methods_raw")
 Top 客户（按 quota）
 $(format_usage_rank_lines "$top_users_raw" '无客户消耗数据')
@@ -318,7 +314,9 @@ $(format_usage_rank_lines "$top_models_raw" '无模型消耗数据')
 口径说明
 - DAU / WAU / MAU / 请求 / quota / tokens：基于 quota_data
 - 注册增长：基于每日 00:05 用户快照；缺快照时显示 n/a
-- 营收：基于 top_ups.success；待支付：基于 subscription_orders.pending
+- 营收：仅基于 subscription_orders.success 的真实套餐支付
+- 兑换码：不计入营收
+- 待支付：基于 subscription_orders.pending
 - 金额：数据库按 ${REVENUE_SOURCE} 存储，报表按 ${REVENUE_REPORT} 展示（当前汇率 ${USD_TO_CNY_RATE}）
 EOFMSG
 )
