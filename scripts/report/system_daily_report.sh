@@ -11,12 +11,11 @@ require_command curl docker awk grep cut free df date sort head mktemp
 
 REPORT_DATE="${1:-$(date -d 'yesterday' +%F)}"
 NEXT_DATE="$(date -d "${REPORT_DATE} +1 day" +%F)"
-REPORT_TITLE="new-api 系统日报（${REPORT_DATE}）"
 REPORT_HOST="$(hostname)"
-NOW="$(date '+%F %T')"
 TOP_PATHS="${TRAFFIC_TOP_PATHS}"
 TOP_SUSPICIOUS_PATHS="${TRAFFIC_TOP_SUSPICIOUS_PATHS}"
 SUSPICIOUS_REGEX="${TRAFFIC_SUSPICIOUS_REGEX}"
+SEND_DETAIL="${REPORT_SEND_DETAIL_MESSAGE}"
 
 LOG_TMP="$(mktemp)"
 trap 'rm -f "$LOG_TMP"' EXIT
@@ -37,29 +36,79 @@ get_field() {
   printf '%s' "$line" | cut -d'|' -f"$idx"
 }
 
-fmt_container() {
-  local line="$1"
-  printf '%s: %s / health=%s / restart=%s / mem=%s' \
-    "$(get_field "$line" 1)" \
-    "$(get_field "$line" 2)" \
-    "$(get_field "$line" 3)" \
-    "$(get_field "$line" 4)" \
-    "$(get_field "$line" 5)"
+text_to_pre() {
+  local text="$1"
+  printf '<pre>%s</pre>' "$(html_escape "$text")"
 }
 
-format_count_path_lines() {
+format_count_path_block() {
   local raw="$1"
   local empty_label="$2"
   if [[ -z "$raw" ]]; then
-    printf '  - %s\n' "$empty_label"
+    printf '<i>%s</i>' "$(html_escape "$empty_label")"
     return 0
   fi
-  local idx=0
+
+  local idx=0 text="" line
   while IFS=$'\t' read -r count path; do
     [[ -n "${path:-}" ]] || continue
     idx=$((idx + 1))
-    printf '  %d) %s ｜ %s\n' "$idx" "$path" "$count"
+    printf -v line '%d. %s | %s' "$idx" "$path" "$count"
+    text+="${line}"$'\n'
   done <<<"$raw"
+  text_to_pre "${text%$'\n'}"
+}
+
+container_severity() {
+  local line="$1"
+  local status health
+  status="$(get_field "$line" 2)"
+  health="$(get_field "$line" 3)"
+
+  if [[ "$status" != "running" || "$health" == "unhealthy" || "$status" == "missing" ]]; then
+    printf 'critical'
+  elif [[ "$health" == "starting" ]]; then
+    printf 'warning'
+  else
+    printf 'ok'
+  fi
+}
+
+container_icon() {
+  case "$(container_severity "$1")" in
+    critical) printf '🔴' ;;
+    warning) printf '🟡' ;;
+    *) printf '🟢' ;;
+  esac
+}
+
+container_compact() {
+  local alias_name="$1"
+  local line="$2"
+  printf '%s %s' "$(container_icon "$line")" "$alias_name"
+}
+
+container_detail_line() {
+  local alias_name="$1"
+  local line="$2"
+  printf '• %s <b>%s</b>：<code>%s</code> ｜ health <code>%s</code> ｜ restart <b>%s</b> ｜ mem <code>%s</code>' \
+    "$(container_icon "$line")" \
+    "$(html_escape "$alias_name")" \
+    "$(html_escape "$(get_field "$line" 2)")" \
+    "$(html_escape "$(get_field "$line" 3)")" \
+    "$(html_escape "$(get_field "$line" 4)")" \
+    "$(html_escape "$(get_field "$line" 5)")"
+}
+
+sample_value() {
+  local count="$1"
+  local value="$2"
+  local suffix="${3:-}"
+  if (( count > 0 )); then
+    printf '%s%s' "$value" "$suffix"
+  else
+    printf 'n/a'
+  fi
 }
 
 current_http="$(current_http_code)"
@@ -175,48 +224,61 @@ if [[ -f "${NEWAPI_STATE_DIR}/last_restart_ts" ]]; then
   fi
 fi
 
-status_icon="✅"
-status_text="正常"
-if [[ "$current_http" == "000" || "$current_http" -ge 500 || "$alert_total" -gt 0 || "$fail_count" -gt 0 ]]; then
-  status_icon="⚠️"
+newapi_container_state="$(container_severity "$newapi_line")"
+mysql_container_state="$(container_severity "$mysql_line")"
+proxy_container_state="$(container_severity "$proxy_line")"
+
+status_icon="🟢"
+status_text="系统稳定"
+if [[ "$current_http" == "000" || "$current_http" -ge 500 || "$newapi_container_state" == "critical" || "$mysql_container_state" == "critical" || "$proxy_container_state" == "critical" ]]; then
+  status_icon="🔴"
+  status_text="服务异常"
+elif [[ "$alert_total" -gt 0 || "$fail_count" -gt 0 || "$current_mem_avail" -le "$MEM_AVAILABLE_MIN_MB" || "$current_swap_used" -ge "$SWAP_USED_WARN_MB" || "$traffic_5xx" -gt 0 || "$newapi_container_state" == "warning" || "$mysql_container_state" == "warning" || "$proxy_container_state" == "warning" ]]; then
+  status_icon="🟡"
   status_text="需关注"
 fi
 
-msg=$(cat <<EOFMSG
-${REPORT_TITLE}
-总体：${status_icon} ${status_text}
-主机：${REPORT_HOST}
-时间：${NOW}
-域名：${NEWAPI_URL}
-
-容器状态
-- $(fmt_container "$newapi_line")
-- $(fmt_container "$mysql_line")
-- $(fmt_container "$proxy_line")
-
-资源与可用性
-- 监控样本数：${sample_count}
-- new-api 峰值内存：${peak_newapi_mem} MB ｜ mysql 峰值内存：${peak_mysql_mem} MB
-- 最低可用内存：${min_mem_avail} MB ｜ swap 峰值：${peak_swap_used} MB ｜ 负载峰值：${peak_load1}
-- 告警总数：${alert_total} ｜ fail_count：${fail_count} ｜ last_restart：${last_restart_human}
-
-站点流量
-- 总请求：${traffic_total} ｜ 去重 IP：${traffic_ip_uniq} ｜ 回包流量：$(compact_bytes "$response_bytes_total")
-- 网关API：${gateway_requests} ｜ 控制台API：${console_requests} ｜ 页面/静态：${web_requests}
-- 可疑扫描：${suspicious_requests}
-- 2xx / 3xx / 4xx / 5xx：${traffic_2xx} / ${traffic_3xx} / ${traffic_4xx} / ${traffic_5xx}
-Top 路径
-$(format_count_path_lines "$top_paths_raw" '无路径数据')
-可疑路径
-$(format_count_path_lines "$top_suspicious_paths_raw" '无可疑路径')
-
-当前资源
-- HTTP：${current_http}
-- MemAvailable：${current_mem_avail} MB ｜ SwapUsed：${current_swap_used} MB ｜ Load1：${current_load1}
-- /：${current_disk_root}
-- /opt：${current_disk_opt}
+summary_html=$(cat <<EOFMSG
+<b>🖥️ NewAPI 系统日报</b>
+<b>日期：</b><code>${REPORT_DATE}</code>
+<b>总体：</b>${status_icon} <b>${status_text}</b>
+<b>站点：</b><code>$(html_escape "${NEWAPI_URL}")</code>
+<b>主机：</b><code>$(html_escape "${REPORT_HOST}")</code>
+<b>可用性：</b>HTTP <b>${current_http}</b> ｜ fail_count <b>${fail_count}</b> ｜ 告警 <b>${alert_total}</b>
+<b>容器：</b>$(container_compact 'app' "$newapi_line") ｜ $(container_compact 'db' "$mysql_line") ｜ $(container_compact 'proxy' "$proxy_line")
+<b>资源：</b>MemAvail <b>${current_mem_avail}MB</b> ｜ Swap <b>${current_swap_used}MB</b> ｜ Load1 <b>${current_load1}</b>
+<b>流量：</b><b>$(compact_number "$traffic_total")</b> req ｜ IP <b>${traffic_ip_uniq}</b> ｜ 5xx <b>${traffic_5xx}</b> ｜ 可疑 <b>${suspicious_requests}</b>
 EOFMSG
 )
 
-send_notification "$msg"
+detail_html=$(cat <<EOFMSG
+<b>🧩 容器健康</b>
+$(container_detail_line "$NEWAPI_NAME" "$newapi_line")
+$(container_detail_line "$NEWAPI_MYSQL_CONTAINER" "$mysql_line")
+$(container_detail_line "$NEWAPI_PROXY_NAME" "$proxy_line")
+
+<b>📈 资源与恢复</b>
+• 当前：HTTP <b>${current_http}</b> ｜ MemAvail <b>${current_mem_avail}MB</b> ｜ Swap <b>${current_swap_used}MB</b> ｜ Load1 <b>${current_load1}</b>
+• 当日峰值：new-api <b>$(sample_value "$sample_count" "$peak_newapi_mem" 'MB')</b> ｜ mysql <b>$(sample_value "$sample_count" "$peak_mysql_mem" 'MB')</b>
+• 当日底线：MemAvail <b>$(sample_value "$sample_count" "$min_mem_avail" 'MB')</b> ｜ Swap峰值 <b>$(sample_value "$sample_count" "$peak_swap_used" 'MB')</b> ｜ Load峰值 <b>$(sample_value "$sample_count" "$peak_load1")</b>
+• 告警 <b>${alert_total}</b> ｜ fail_count <b>${fail_count}</b> ｜ 监控样本 <b>${sample_count}</b> ｜ 最近自动重启 <code>$(html_escape "$last_restart_human")</code>
+• 磁盘：<code>/ $(html_escape "$current_disk_root")</code> ｜ <code>/opt $(html_escape "$current_disk_opt")</code>
+
+<b>🌐 网站流量</b>
+• 总请求：<b>$(compact_number "$traffic_total")</b> ｜ 去重 IP：<b>${traffic_ip_uniq}</b> ｜ 回包流量：<b>$(compact_bytes "$response_bytes_total")</b>
+• 网关 API：<b>$(compact_number "$gateway_requests")</b> ｜ 控制台 API：<b>$(compact_number "$console_requests")</b> ｜ 页面/静态：<b>$(compact_number "$web_requests")</b>
+• 状态码：<code>2xx ${traffic_2xx}</code> ｜ <code>3xx ${traffic_3xx}</code> ｜ <code>4xx ${traffic_4xx}</code> ｜ <code>5xx ${traffic_5xx}</code>
+• 可疑扫描：<b>${suspicious_requests}</b>
+
+<b>🔥 热门路径</b>
+$(format_count_path_block "$top_paths_raw" '无路径数据')
+<b>🛡️ 可疑路径</b>
+$(format_count_path_block "$top_suspicious_paths_raw" '无可疑路径')
+EOFMSG
+)
+
+send_notification_html "$summary_html"
+if [[ "${SEND_DETAIL}" == "1" ]]; then
+  send_notification_html "$detail_html"
+fi
 log_with_ts "$NEWAPI_SYSTEM_REPORT_LOG" "sent system report for ${REPORT_DATE}"

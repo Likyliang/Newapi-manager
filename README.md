@@ -70,6 +70,7 @@ docs/
 - `REVENUE_SOURCE_CURRENCY`：数据库金额币种，当前应为 `USD`
 - `REVENUE_REPORT_CURRENCY`：报表展示币种，当前建议 `CNY`
 - `REVENUE_USD_TO_CNY_RATE`：美元兑人民币换算倍率，当前设为 `7`
+- `REPORT_SEND_DETAIL_MESSAGE`：是否拆分发送明细消息，`1` 为发送摘要 + 明细两条 HTML 报表
 - `TRAFFIC_TOP_PATHS` / `TRAFFIC_TOP_SUSPICIOUS_PATHS`：系统日报展示的路径条数
 - `TRAFFIC_SUSPICIOUS_REGEX`：可疑扫描识别规则
 

@@ -14,8 +14,6 @@ require_command docker awk date sort comm wc head
 REPORT_DATE="${1:-$(date -d 'yesterday' +%F)}"
 PREV_DATE="$(date -d "${REPORT_DATE} -1 day" +%F)"
 NEXT_DATE="$(date -d "${REPORT_DATE} +1 day" +%F)"
-NOW="$(date '+%F %T')"
-HOST="$(hostname)"
 TOP_N="${REPORT_TOP_N}"
 GROUP_TOP_N="${REPORT_GROUP_TOP_N}"
 PAYMENT_METHOD_TOP_N="${REPORT_PAYMENT_METHOD_TOP_N}"
@@ -24,6 +22,7 @@ LONG_INACTIVE_DAYS="${BUSINESS_LONG_INACTIVE_DAYS}"
 REVENUE_SOURCE="${REVENUE_SOURCE_CURRENCY}"
 REVENUE_REPORT="${REVENUE_REPORT_CURRENCY}"
 USD_TO_CNY_RATE="${REVENUE_USD_TO_CNY_RATE}"
+SEND_DETAIL="${REPORT_SEND_DETAIL_MESSAGE}"
 
 START_TS="$(date -d "${REPORT_DATE} 00:00:00" +%s)"
 END_TS="$(date -d "${REPORT_DATE} +1 day 00:00:00" +%s)"
@@ -118,50 +117,64 @@ snapshot_growth_summary() {
   printf '%s|%s|%s|%s\n' "$start_count" "$end_count" "$added" "$removed"
 }
 
-format_usage_rank_lines() {
+text_to_pre() {
+  local text="$1"
+  printf '<pre>%s</pre>' "$(html_escape "$text")"
+}
+
+format_usage_rank_block() {
   local raw="$1"
   local empty_label="$2"
   if [[ -z "$raw" ]]; then
-    printf -- '  - %s\n' "$empty_label"
+    printf '<i>%s</i>' "$(html_escape "$empty_label")"
     return 0
   fi
-  local idx=0
+
+  local idx=0 text="" line
   while IFS=$'\t' read -r name reqs quota tokens; do
     [[ -n "${name:-}" ]] || continue
     idx=$((idx + 1))
-    printf '  %d) %s ｜ req=%s ｜ quota=%s ｜ tokens=%s\n' \
+    printf -v line '%d. %s | req %s | quota %s | tok %s' \
       "$idx" "$name" "$(compact_number "$reqs")" "$(compact_number "$quota")" "$(compact_number "$tokens")"
+    text+="${line}"$'\n'
   done <<<"$raw"
+  text_to_pre "${text%$'\n'}"
 }
 
-format_group_lines() {
+format_group_block() {
   local raw="$1"
   if [[ -z "$raw" ]]; then
-    printf '  - 无活跃分组数据\n'
+    printf '<i>无活跃分组数据</i>'
     return 0
   fi
-  local idx=0
+
+  local idx=0 text="" line
   while IFS=$'\t' read -r group_name dau reqs quota; do
     [[ -n "${group_name:-}" ]] || continue
     idx=$((idx + 1))
-    printf '  %d) %s ｜ 活跃=%s ｜ req=%s ｜ quota=%s\n' \
+    printf -v line '%d. %s | dau %s | req %s | quota %s' \
       "$idx" "$group_name" "$dau" "$(compact_number "$reqs")" "$(compact_number "$quota")"
+    text+="${line}"$'\n'
   done <<<"$raw"
+  text_to_pre "${text%$'\n'}"
 }
 
-format_payment_lines() {
+format_payment_block() {
   local raw="$1"
   if [[ -z "$raw" ]]; then
-    printf '  - 当日无成功支付\n'
+    printf '<i>当日无成功套餐支付</i>'
     return 0
   fi
-  local idx=0
+
+  local idx=0 text="" line
   while IFS=$'\t' read -r method orders amount; do
     [[ -n "${method:-}" ]] || continue
     idx=$((idx + 1))
-    printf '  %d) %s ｜ 订单=%s ｜ 营收=%s\n' \
+    printf -v line '%d. %s | orders %s | revenue %s' \
       "$idx" "$method" "$orders" "$(fmt_report_money "$amount")"
+    text+="${line}"$'\n'
   done <<<"$raw"
+  text_to_pre "${text%$'\n'}"
 }
 
 total_users="$(sql_scalar "SELECT COUNT(*) FROM users WHERE deleted_at IS NULL;")"
@@ -212,15 +225,15 @@ revenue_delta_report="$(signed_float_delta "$success_revenue_report" "$prev_succ
 
 IFS='|' read -r snapshot_start_users snapshot_end_users snapshot_added snapshot_removed <<<"$(snapshot_growth_summary)"
 if [[ "$snapshot_added" == "n/a" ]]; then
-  user_growth_line="- 注册增长：暂缺快照（建议启用 00:05 用户快照任务）"
+  user_growth_text="注册增长：暂缺快照（建议启用 00:05 用户快照任务）"
   total_users_display="$total_users"
 else
   net_growth=$((snapshot_added - snapshot_removed))
   total_users_display="$snapshot_end_users"
   if [[ "$net_growth" -ge 0 ]]; then
-    user_growth_line="- 注册增长：净 +${net_growth}（新增 ${snapshot_added} / 减少 ${snapshot_removed} / 期末总用户 ${snapshot_end_users}）"
+    user_growth_text="注册增长：净 +${net_growth}（新增 ${snapshot_added} / 减少 ${snapshot_removed} / 期末总用户 ${snapshot_end_users}）"
   else
-    user_growth_line="- 注册增长：净 ${net_growth}（新增 ${snapshot_added} / 减少 ${snapshot_removed} / 期末总用户 ${snapshot_end_users}）"
+    user_growth_text="注册增长：净 ${net_growth}（新增 ${snapshot_added} / 减少 ${snapshot_removed} / 期末总用户 ${snapshot_end_users}）"
   fi
 fi
 
@@ -272,54 +285,64 @@ ORDER BY quota_used DESC, reqs DESC
 LIMIT ${TOP_N};
 ")"
 
-msg=$(cat <<EOFMSG
-new-api 经营日报（${REPORT_DATE}）
-主机：${HOST}
-时间：${NOW}
-域名：${NEWAPI_URL}
+if (( active_users == 0 )); then
+  status_icon="🔴"
+  status_text="无真实活跃"
+elif [[ "$active_delta" == -* ]]; then
+  status_icon="🟡"
+  status_text="活跃波动"
+else
+  status_icon="🟢"
+  status_text="运营稳定"
+fi
 
-活跃概况
-- DAU：${active_users}（较前日 ${active_delta} / 活跃率 ${active_rate}）
-- WAU / MAU：${wau_users} / ${mau_users}
-- 连续活跃：${retained_active_users}（活跃留存 ${retention_rate}）
-- 回流活跃：${returning_active_users} ｜ 新增活跃：${new_active_users}
-- ${INACTIVE_DAYS}日沉默：${inactive_short_users} ｜ ${LONG_INACTIVE_DAYS}日沉默：${inactive_long_users}
-
-使用消耗
-- 请求次数：$(compact_number "$request_count")（人均 ${avg_req_per_active}）
-- 消耗 quota：$(compact_number "$quota_used")（人均 $(compact_number "$avg_quota_per_active")）
-- 消耗 tokens：$(compact_number "$token_used")（人均 $(compact_number "$avg_tokens_per_active")）
-
-客户增长
-- 当前总用户：${total_users_display}
-${user_growth_line}
-- 累计付费用户：${cumulative_paying_users}（累计付费率 ${cumulative_pay_rate}）
-- 当日付费用户：${paying_users}（新增 ${new_paying_users} / 复购 ${repeat_paying_users} / 活跃付费率 ${active_pay_rate}）
-
-营收概况
-- 成功营收：$(fmt_report_money "$success_revenue")（较前日 $(report_money_symbol)${revenue_delta_report} / 原始 $(fmt_source_money "$success_revenue")）
-- 成功订单：${success_orders} ｜ 客单价：$(report_money_symbol)${order_aov_report} ｜ ARPPU：$(report_money_symbol)${arppu_report}
-- 本月累计营收：$(report_money_symbol)${mtd_revenue_report} ｜ 累计总营收：$(report_money_symbol)${total_revenue_report}
-- 今日新增待支付：${pending_orders_today} / $(report_money_symbol)${pending_amount_today_report}
-
-活跃分组
-$(format_group_lines "$top_groups_raw")
-套餐支付方式
-$(format_payment_lines "$payment_methods_raw")
-Top 客户（按 quota）
-$(format_usage_rank_lines "$top_users_raw" '无客户消耗数据')
-Top 模型（按 quota）
-$(format_usage_rank_lines "$top_models_raw" '无模型消耗数据')
-
-口径说明
-- DAU / WAU / MAU / 请求 / quota / tokens：基于 quota_data
-- 注册增长：基于每日 00:05 用户快照；缺快照时显示 n/a
-- 营收：仅基于 subscription_orders.success 的真实套餐支付
-- 兑换码：不计入营收
-- 待支付：基于 subscription_orders.pending
-- 金额：数据库按 ${REVENUE_SOURCE} 存储，报表按 ${REVENUE_REPORT} 展示（当前汇率 ${USD_TO_CNY_RATE}）
+summary_html=$(cat <<EOFMSG
+<b>📊 NewAPI 经营日报</b>
+<b>日期：</b><code>${REPORT_DATE}</code>
+<b>总体：</b>${status_icon} <b>${status_text}</b>
+<b>营收：</b><b>$(fmt_report_money "$success_revenue")</b>（原始 $(fmt_source_money "$success_revenue")）
+<b>活跃：</b><b>DAU ${active_users}</b>（${active_rate}）｜ WAU/MAU ${wau_users}/${mau_users}
+<b>客户：</b>总用户 <b>${total_users_display}</b> ｜ 累计付费 <b>${cumulative_paying_users}</b>
+<b>新增：</b>活跃 <b>${new_active_users}</b> ｜ 付费 <b>${new_paying_users}</b>
+<b>待支付：</b>${pending_orders_today} 单 / $(report_money_symbol)${pending_amount_today_report}
+<i>营收仅统计真实套餐支付，不含兑换码</i>
 EOFMSG
 )
 
-send_notification "$msg"
+detail_html=$(cat <<EOFMSG
+<b>👥 活跃与增长</b>
+• 连续活跃：<b>${retained_active_users}</b>（留存 ${retention_rate}）
+• 回流活跃：<b>${returning_active_users}</b> ｜ 新增活跃：<b>${new_active_users}</b>
+• ${INACTIVE_DAYS}日沉默：<b>${inactive_short_users}</b> ｜ ${LONG_INACTIVE_DAYS}日沉默：<b>${inactive_long_users}</b>
+• $(html_escape "$user_growth_text")
+• 累计付费率：<b>${cumulative_pay_rate}</b> ｜ 活跃付费率：<b>${active_pay_rate}</b>
+
+<b>⚙️ 使用消耗</b>
+• 请求次数：<b>$(compact_number "$request_count")</b>（人均 ${avg_req_per_active}）
+• Quota：<b>$(compact_number "$quota_used")</b>（人均 $(compact_number "$avg_quota_per_active")）
+• Tokens：<b>$(compact_number "$token_used")</b>（人均 $(compact_number "$avg_tokens_per_active")）
+
+<b>💰 营收与付费</b>
+• 成功订单：<b>${success_orders}</b> ｜ 客单价：<b>$(report_money_symbol)${order_aov_report}</b> ｜ ARPPU：<b>$(report_money_symbol)${arppu_report}</b>
+• 本月累计营收：<b>$(report_money_symbol)${mtd_revenue_report}</b>
+• 累计总营收：<b>$(report_money_symbol)${total_revenue_report}</b>
+• 今日新增待支付：<b>${pending_orders_today}</b> / <b>$(report_money_symbol)${pending_amount_today_report}</b>
+
+<b>🏷️ 活跃分组</b>
+$(format_group_block "$top_groups_raw")
+<b>💳 套餐支付方式</b>
+$(format_payment_block "$payment_methods_raw")
+<b>⭐ Top 客户（按 quota）</b>
+$(format_usage_rank_block "$top_users_raw" '无客户消耗数据')
+<b>🤖 Top 模型（按 quota）</b>
+$(format_usage_rank_block "$top_models_raw" '无模型消耗数据')
+
+<code>口径：金额按 ${REVENUE_SOURCE} 存储，按 ${REVENUE_REPORT} 展示，汇率 ${USD_TO_CNY_RATE}</code>
+EOFMSG
+)
+
+send_notification_html "$summary_html"
+if [[ "${SEND_DETAIL}" == "1" ]]; then
+  send_notification_html "$detail_html"
+fi
 log_with_ts "$NEWAPI_BUSINESS_REPORT_LOG" "sent business report for ${REPORT_DATE}"

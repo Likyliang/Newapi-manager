@@ -81,6 +81,7 @@ source_newapi_manager_config() {
   : "${REVENUE_SOURCE_CURRENCY:=USD}"
   : "${REVENUE_REPORT_CURRENCY:=CNY}"
   : "${REVENUE_USD_TO_CNY_RATE:=7}"
+  : "${REPORT_SEND_DETAIL_MESSAGE:=1}"
   : "${TRAFFIC_TOP_PATHS:=5}"
   : "${TRAFFIC_TOP_SUSPICIOUS_PATHS:=3}"
   : "${TRAFFIC_SUSPICIOUS_REGEX:=([.]env|wp-|vendor/phpunit|boaform|hello[.]world|SDK/|actuator|cgi-bin|login[.]asp|phpunit|[.]git|[.]svn)}"
@@ -135,6 +136,13 @@ print(json.dumps(sys.argv[1]))
 PY
 }
 
+html_escape() {
+  python3 - <<'PY' "$1"
+import html, sys
+print(html.escape(sys.argv[1], quote=False))
+PY
+}
+
 send_notification() {
   local msg="$1"
 
@@ -174,6 +182,30 @@ PY
       -d chat_id="${TELEGRAM_CHAT_ID}" \
       --data-urlencode text="$msg" >/dev/null 2>&1 || true
   fi
+}
+
+send_notification_html() {
+  local msg="$1"
+
+  if [[ "${NEWAPI_MANAGER_STDOUT_ONLY:-0}" == "1" ]]; then
+    printf "%s\n\n" "$msg"
+    return 0
+  fi
+
+  if [[ "${NEWAPI_MANAGER_DISABLE_NOTIFY:-0}" == "1" ]]; then
+    return 0
+  fi
+
+  if [[ -n "${TELEGRAM_BOT_TOKEN:-}" && -n "${TELEGRAM_CHAT_ID:-}" ]]; then
+    curl -sS -m 10 -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
+      -d chat_id="${TELEGRAM_CHAT_ID}" \
+      -d parse_mode="HTML" \
+      -d disable_web_page_preview="true" \
+      --data-urlencode text="$msg" >/dev/null 2>&1 || true
+    return 0
+  fi
+
+  send_notification "$msg"
 }
 
 current_http_code() {
