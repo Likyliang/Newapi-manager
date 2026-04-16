@@ -1,0 +1,35 @@
+# 部署说明
+
+## 现有脚本来源
+这个仓库整合了两部分脚本：
+
+1. 新机生产脚本
+   - `app_guard_monitor.sh`
+   - `new-api-auto-update.sh`
+   - `new-api-daily-report.sh`
+2. 本地/管理机脚本
+   - `new-api-db-backup.sh`
+   - `backup_newapi.sh`（异地同步）
+
+## 推荐安装位置
+- 仓库代码：`/opt/newapi-manager`
+- 可执行入口：`/usr/local/bin`
+- 配置文件：`/etc/newapi-manager.env`
+
+## 推荐 cron
+服务器侧：
+- 00:05 用户快照
+- 每 5 分钟健康监控
+- 每小时 10 分数据库备份
+- 08:20 系统日报
+- 08:30 经营日报
+- 每周日 03:00 自动更新
+
+管理机侧：
+- 每小时 20 分做异地备份同步
+
+## 初次上线建议
+1. 先安装但不要立刻覆盖所有 cron
+2. 手动执行每个脚本一次
+3. 确认 Telegram / OpenClaw 通知正常
+4. 再切换 cron 到仓库版脚本

@@ -1,0 +1,2 @@
+# new-api dedicated monitor
+*/5 * * * * root flock -n /var/run/new-api-monitor.lock /usr/local/bin/app_guard_monitor.sh >/var/log/new-api-monitor.log 2>&1

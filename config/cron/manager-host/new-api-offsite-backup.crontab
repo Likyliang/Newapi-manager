@@ -1,0 +1,3 @@
+# Example crontab on your management/backup host
+# Edit the script path and runtime user if needed.
+20 * * * * /usr/local/bin/new-api-offsite-backup.sh >/var/log/new-api-offsite-backup.log 2>&1

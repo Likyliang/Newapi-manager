@@ -1,0 +1,3 @@
+CRON_TZ=Asia/Shanghai
+# new-api system report (yesterday summary)
+20 8 * * * root flock -n /var/run/new-api-daily-report.lock /usr/local/bin/new-api-daily-report.sh >/var/log/new-api-daily-report.log 2>&1
