@@ -17,6 +17,11 @@
 - 主配置文件：`/opt/newapi-manager/.env`
 - 兼容配置路径：`/etc/newapi-manager.env`
 
+## 当前 newapi 目标机
+- 维护者服务器信息中的新机：`newapi-target`
+- 当前主机：`104.248.222.180`
+- 监控/通知脚本里的 `NEWAPI_URL` 与异地备份源建议指向这台机器，直到正式域名切换完成
+
 ## 推荐 cron
 服务器侧：
 - 00:05 用户快照
