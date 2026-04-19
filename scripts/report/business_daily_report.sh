@@ -95,10 +95,31 @@ nonneg_sub() {
 }
 
 snapshot_growth_summary() {
+  local users_created_at_type
+  users_created_at_type="$(sql_scalar "SELECT LOWER(data_type) FROM information_schema.columns WHERE table_schema = DATABASE() AND table_name='users' AND column_name='created_at' LIMIT 1;")"
+  if [[ -n "$users_created_at_type" ]]; then
+    local registered_today
+    case "$users_created_at_type" in
+      bigint|int|integer|mediumint|smallint|tinyint|decimal|numeric)
+        registered_today="$(sql_scalar "SELECT COUNT(*) FROM users WHERE deleted_at IS NULL AND created_at >= ${START_TS} AND created_at < ${END_TS};")"
+        ;;
+      date|datetime|timestamp)
+        registered_today="$(sql_scalar "SELECT COUNT(*) FROM users WHERE deleted_at IS NULL AND created_at >= '${REPORT_DATE} 00:00:00' AND created_at < '${NEXT_DATE} 00:00:00';")"
+        ;;
+      *)
+        registered_today=""
+        ;;
+    esac
+    if [[ -n "$registered_today" ]]; then
+      printf 'created_at|%s|0|0|0\n' "$registered_today"
+      return 0
+    fi
+  fi
+
   local start_file="${NEWAPI_USER_SNAPSHOT_DIR}/${REPORT_DATE}.tsv"
   local end_file="${NEWAPI_USER_SNAPSHOT_DIR}/${NEXT_DATE}.tsv"
   if [[ ! -f "$start_file" || ! -f "$end_file" ]]; then
-    printf 'n/a|n/a|n/a|n/a\n'
+    printf 'snapshot|n/a|n/a|n/a|n/a\n'
     return 0
   fi
 
@@ -114,7 +135,7 @@ snapshot_growth_summary() {
   end_count="$(wc -l <"$end_ids" | awk '{print $1}')"
   added="$(comm -13 "$start_ids" "$end_ids" | wc -l | awk '{print $1}')"
   removed="$(comm -23 "$start_ids" "$end_ids" | wc -l | awk '{print $1}')"
-  printf '%s|%s|%s|%s\n' "$start_count" "$end_count" "$added" "$removed"
+  printf 'snapshot|%s|%s|%s|%s\n' "$start_count" "$end_count" "$added" "$removed"
 }
 
 text_to_pre() {
@@ -223,8 +244,11 @@ order_aov_report="$(money_to_report "$order_aov")"
 arppu_report="$(money_to_report "$arppu")"
 revenue_delta_report="$(signed_float_delta "$success_revenue_report" "$prev_success_revenue_report")"
 
-IFS='|' read -r snapshot_start_users snapshot_end_users snapshot_added snapshot_removed <<<"$(snapshot_growth_summary)"
-if [[ "$snapshot_added" == "n/a" ]]; then
+IFS='|' read -r registration_mode snapshot_start_users snapshot_end_users snapshot_added snapshot_removed <<<"$(snapshot_growth_summary)"
+if [[ "$registration_mode" == "created_at" ]]; then
+  user_growth_text="注册新增：${snapshot_start_users}（按 users.created_at）"
+  total_users_display="$total_users"
+elif [[ "$snapshot_added" == "n/a" ]]; then
   user_growth_text="注册增长：暂缺快照（建议启用 00:05 用户快照任务）"
   total_users_display="$total_users"
 else
@@ -304,6 +328,7 @@ summary_html=$(cat <<EOFMSG
 <b>活跃：</b><b>DAU ${active_users}</b>（${active_rate}）｜ WAU/MAU ${wau_users}/${mau_users}
 <b>客户：</b>总用户 <b>${total_users_display}</b> ｜ 累计付费 <b>${cumulative_paying_users}</b>
 <b>新增：</b>活跃 <b>${new_active_users}</b> ｜ 付费 <b>${new_paying_users}</b>
+<b>注册增长：</b>${html_escape "$user_growth_text"}
 <b>待支付：</b>${pending_orders_today} 单 / $(report_money_symbol)${pending_amount_today_report}
 <i>营收仅统计真实套餐支付，不含兑换码</i>
 EOFMSG

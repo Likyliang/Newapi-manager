@@ -47,9 +47,10 @@
 - 口径：`status='pending'` 且 `create_time` 落在报表日期内
 
 ### 注册增长
-- 由于当前 `users` 表没有显式 `created_at` 字段，不能直接按自然日回溯注册新增
-- 解决办法：每天 00:05 跑一次 `new-api-user-snapshot.sh`，保存用户快照
-- 日报读取连续两天快照做差，得到：新增 / 减少 / 净增长
+- 优先读取 `users.created_at`，脚本会自动识别其为时间戳或 datetime 并按自然日统计注册新增
+- 如果当前实例没有 `created_at` 字段，则退回到用户快照方案：
+  - 每天 00:05 跑一次 `new-api-user-snapshot.sh`
+  - 日报读取连续两天快照做差，得到：新增 / 减少 / 净增长
 
 ## 系统日报
 - 数据源：Docker、`/proc/meminfo`、`free`、`df`、监控采样日志
